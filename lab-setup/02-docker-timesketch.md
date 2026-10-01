@@ -1,131 +1,169 @@
+# 02 — Timesketch Deployment via Docker
 
-02 — Déploiement de Timesketch via Docker
-Objectif
+## Objective
 
-Déployer Timesketch, la plateforme collaborative d'analyse et de visualisation de timelines forensiques, en utilisant Docker comme environnement d'exécution.
+Deploy Timesketch, the collaborative forensic timeline analysis and visualization platform, using Docker as the runtime environment.
 
-Timesketch repose sur une stack de cinq services conteneurisés :
-Service 	Rôle
-timesketch-web 	Application web principale
-timesketch-worker 	Traitement asynchrone des imports
-opensearch 	Moteur d'indexation et de recherche des événements
-postgres 	Base de données relationnelle (utilisateurs, sketches)
-redis 	File de messages entre web et worker
-nginx 	Reverse proxy HTTP/HTTPS
-Prérequis
+Timesketch relies on a stack of six containerized services:
 
-    VM Ubuntu 24.04 LTS opérationnelle (voir 01-vm-provisioning.md)
-    RAM VM : 8 Go minimum — OpenSearch seul alloue 2 Go au démarrage
-    Disque VM : 80 Go — les images Docker de la stack pèsent ~6 Go à elles seules
-    Accès internet depuis la VM pour le téléchargement des images
+| Service | Role |
+|---------|------|
+| `timesketch-web` | Main web application |
+| `timesketch-worker` | Async import processing |
+| `opensearch` | Event indexing and search engine |
+| `postgres` | Relational database (users, sketches) |
+| `redis` | Message queue between web and worker |
+| `nginx` | HTTP/HTTPS reverse proxy |
 
-1. Pourquoi le dépôt officiel Docker et pas docker.io
+## Prerequisites
 
-Ubuntu propose dans ses dépôts standard le paquet docker.io, qui est une version communautaire de Docker maintenue par Canonical. Ce paquet présente deux limitations pour ce lab :
+- Operational Ubuntu 24.04 LTS VM (see [01-vm-provisioning.md](01-vm-provisioning.md))
+- VM RAM: 8 GB minimum — OpenSearch alone allocates 2 GB at startup
+- VM Disk: 80 GB — Docker images for the stack alone weigh ~6 GB
+- Internet access from the VM for image downloads
 
-    Il ne fournit pas docker-compose-plugin (la commande docker compose intégrée au client Docker), uniquement l'ancien binaire standalone docker-compose — qui est lui-même introuvable dans Ubuntu 24.04.
-    Il prend du retard sur les versions amont : Docker 29.x n'est pas disponible via docker.io.
+## 1. Why the Official Docker Repository and Not `docker.io`
 
-Le dépôt officiel de Docker (download.docker.com) fournit docker-ce, docker-ce-cli, containerd.io et docker-compose-plugin dans leurs versions les plus récentes, correctement packagées pour Ubuntu.
+Ubuntu provides the `docker.io` package in its standard repositories — a community version maintained by Canonical. This package has two limitations for this lab:
 
-    ⚠️ Si docker.io ou docker-compose ont déjà été installés, les supprimer avant de procéder — ils entreront en conflit avec docker-ce.
+- It does not provide `docker-compose-plugin` (the `docker compose` command integrated into the Docker client), only the legacy standalone `docker-compose` binary — which is itself unavailable in Ubuntu 24.04.
+- It lags behind upstream versions: Docker 29.x is not available via `docker.io`.
 
-2. Installation de Docker
-2.1 Suppression des éventuels paquets conflictuels
+The official Docker repository (<https://download.docker.com>) provides `docker-ce`, `docker-ce-cli`, `containerd.io`, and `docker-compose-plugin` in their latest versions, properly packaged for Ubuntu.
 
+> ⚠️ If `docker.io` or `docker-compose` have already been installed, remove them before proceeding — they will conflict with `docker-ce`.
+
+## 2. Docker Installation
+
+### 2.1 Remove Conflicting Packages
+
+```bash
 sudo apt remove docker.io docker-compose containerd runc -y
 sudo apt autoremove -y
+```
 
-2.2 Installation des prérequis
+### 2.2 Install Prerequisites
 
+```bash
 sudo apt update
 sudo apt install ca-certificates curl gnupg -y
+```
 
-2.3 Ajout de la clé GPG officielle Docker
+### 2.3 Add Official Docker GPG Key
 
+```bash
 sudo install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /tmp/docker.gpg
 sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg /tmp/docker.gpg
 sudo chmod a+r /etc/apt/keyrings/docker.gpg
+```
 
-Vérification — le fichier doit exister et peser environ 2 760 octets :
+**Verification** — the file must exist and weigh approximately 2,760 bytes:
 
+```bash
 ls -lh /etc/apt/keyrings/docker.gpg
+```
 
-2.4 Ajout du dépôt Docker
+### 2.4 Add Docker Repository
 
-La commande suivante doit être saisie en une seule ligne — les retours à la ligne dans un terminal Ubuntu peuvent tronquer la commande et produire un fichier docker.list vide sans erreur visible :
+The following command must be entered in a single line — line breaks in an Ubuntu terminal can truncate the command and produce an empty `docker.list` file without visible error:
 
+```bash
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list
+```
 
-Vérification — le fichier ne doit pas être vide :
+**Verification** — the file must not be empty:
 
+```bash
 cat /etc/apt/sources.list.d/docker.list
-# attendu : deb [arch=amd64 signed-by=...] https://download.docker.com/linux/ubuntu noble stable
+# expected: deb [arch=amd64 signed-by=...] https://download.docker.com/linux/ubuntu noble stable
+```
 
-2.5 Installation de Docker
+### 2.5 Install Docker
 
+```bash
 sudo apt update
 sudo apt install docker-ce docker-ce-cli containerd.io \
   docker-buildx-plugin docker-compose-plugin -y
+```
 
-2.6 Démarrage et activation au boot
+### 2.6 Start and Enable at Boot
 
+```bash
 sudo systemctl enable --now docker
+```
 
-2.7 Vérification
+### 2.7 Verify
 
+```bash
 sudo docker run --rm hello-world
 sudo docker compose version
+```
 
-La sortie Hello from Docker! confirme que le démon fonctionne et peut télécharger des images. docker compose version doit afficher v5.x.x.
-3. Déploiement de Timesketch
-3.1 Téléchargement du script de déploiement officiel
+The output `Hello from Docker!` confirms the daemon works and can pull images. `docker compose version` must show `v5.x.x`.
 
+## 3. Timesketch Deployment
+
+### 3.1 Download Official Deployment Script
+
+```bash
 cd ~
 curl -s -O https://raw.githubusercontent.com/google/timesketch/master/contrib/deploy_timesketch.sh
 chmod 755 deploy_timesketch.sh
+```
 
-    ⚠️ L'URL doit être copiée exactement — toute autocorrection du navigateur ou du terminal (notamment githubusercontent → githubuserconsent) rend le script inaccessible sans message d'erreur explicite.
+> ⚠️ The URL must be copied exactly — any browser or terminal autocorrection (notably `githubusercontent` → `githubuserconsent`) makes the script inaccessible without an explicit error message.
 
-3.2 Exécution du script
+### 3.2 Run the Script
 
+```bash
 sudo ./deploy_timesketch.sh
+```
 
-Le script effectue les opérations suivantes :
+The script performs the following:
 
-    Vérifie la présence de Docker et docker compose
-    Règle vm.max_map_count à 262144 (requis par OpenSearch)
-    Génère les fichiers de configuration dans ~/timesketch/
-    Télécharge les images Docker de la stack
+- Verifies Docker and docker compose presence
+- Sets `vm.max_map_count` to 262144 (required by OpenSearch)
+- Generates configuration files in `~/timesketch/`
+- Downloads Docker images for the stack
 
-À la question Would you like to start the containers? [y/N] — répondre N. Les conteneurs seront démarrés manuellement à l'étape suivante pour un meilleur contrôle de la séquence de démarrage.
-3.3 Réglage permanent de vm.max_map_count
+At the prompt `Would you like to start the containers? [y/N]` — answer **N**. Containers will be started manually in the next step for better control of the startup sequence.
 
-Le script règle vm.max_map_count pour la session courante uniquement. Pour que ce réglage persiste après un redémarrage de la VM :
+### 3.3 Permanent `vm.max_map_count` Setting
 
+The script sets `vm.max_map_count` for the current session only. To persist after VM reboot:
+
+```bash
 echo 'vm.max_map_count=262144' | sudo tee /etc/sysctl.d/99-opensearch.conf
 sudo sysctl -p /etc/sysctl.d/99-opensearch.conf
+```
 
-Vérification :
+**Verification**:
 
-sysctl vm.max_map_count   # attendu : vm.max_map_count = 262144
+```bash
+sysctl vm.max_map_count   # expected: vm.max_map_count = 262144
+```
 
-3.4 Démarrage de la stack
+### 3.4 Start the Stack
 
+```bash
 cd ~/timesketch
 sudo docker compose up -d
+```
 
-Le premier démarrage télécharge les images manquantes (~1,5 Go). Durée variable selon la connexion — compter 5 à 15 minutes.
+First startup downloads missing images (~1.5 GB). Duration varies by connection — allow 5 to 15 minutes.
 
-Suivre la progression :
+Track progress:
 
+```bash
 sudo docker compose ps
+```
 
-Attendre que tous les services affichent le statut healthy ou running avant de continuer. OpenSearch est le service le plus lent à démarrer (30 à 60 secondes après les autres).
+Wait for all services to show `healthy` or `running` before continuing. OpenSearch is the slowest to start (30–60 seconds after others).
 
-Résultat attendu :
+**Expected Result**:
 
+```
 NAME                STATUS
 nginx               Up
 opensearch          Up (healthy)
@@ -133,129 +171,164 @@ postgres            Up (healthy)
 redis               Up (healthy)
 timesketch-web      Up
 timesketch-worker   Up
+```
 
-3.5 Création d'un utilisateur
+### 3.5 Create a User
 
-Attendre une minute supplémentaire après que tous les services soient Up pour laisser timesketch-web terminer son initialisation, puis :
+Wait an additional minute after all services are Up to let `timesketch-web` finish initialization, then:
 
-sudo docker compose exec timesketch-web tsctl create-user <nom_utilisateur>
+```bash
+sudo docker compose exec timesketch-web tsctl create-user <username>
+```
 
-Saisir et confirmer un mot de passe. Message attendu : User account for <nom_utilisateur> created/updated
-3.6 Accès à l'interface web
+Enter and confirm a password. Expected message: `User account for <username> created/updated`
 
-Ouvrir Firefox dans la VM :
+### 3.6 Web Interface Access
 
+Open Firefox in the VM:
+
+```
 http://localhost
+```
 
-    ⚠️ Utiliser http:// et non https:// — aucun certificat SSL n'est configuré par défaut. Si le navigateur redirige automatiquement vers HTTPS, ouvrir une fenêtre de navigation privée (Ctrl+Maj+P) et retaper http://localhost.
+> ⚠️ Use `http://` not `https://` — no SSL certificate is configured by default. If the browser auto-redirects to HTTPS, open a private window (Ctrl+Shift+P) and re-enter `http://localhost`.
 
-4. Commandes de gestion quotidienne
-Démarrer la stack
+## 4. Daily Management Commands
 
+### Start the Stack
+
+```bash
 cd ~/timesketch
 sudo docker compose up -d
+```
 
-Arrêter la stack (fin de session)
+### Stop the Stack (End of Session)
 
+```bash
 cd ~/timesketch
 sudo docker compose stop
+```
 
-Vérifier l'état des services
+### Check Service Status
 
+```bash
 sudo docker compose ps
+```
 
-Consulter les logs d'un service
+### View Service Logs
 
+```bash
 sudo docker compose logs opensearch --tail 50
 sudo docker compose logs timesketch-web --tail 50
+```
 
-Redémarrer un service spécifique
+### Restart a Specific Service
 
+```bash
 sudo docker compose restart opensearch
+```
 
-    ⚠️ Timesketch ne démarre pas automatiquement avec la VM. Lancer docker compose up -d manuellement au début de chaque session si Timesketch est requis pour l'analyse en cours.
+> ⚠️ Timesketch does not start automatically with the VM. Run `docker compose up -d` manually at the beginning of each session if Timesketch is required for the current analysis.
 
-5. Considérations sur les ressources
-Service 	RAM allouée 	Note
-OpenSearch 	2 Go (configuré par le script) 	Valeur minimale fonctionnelle
-timesketch-web + worker 	~500 Mo 	Variable selon la charge
-postgres + redis + nginx 	~300 Mo 	Stables, peu variables
-Total stack 	~2,8 Go 	Sur 8 Go de RAM VM
+## 5. Resource Considerations
 
-Recommandation : ne pas faire tourner Timesketch et Splunk simultanément sauf nécessité. Splunk seul consomme ~1,5 Go supplémentaires — la marge restante pour l'OS et les outils d'analyse devient insuffisante.
+| Service | RAM Allocated | Note |
+|---------|---------------|------|
+| OpenSearch | 2 GB (configured by script) | Minimum functional value |
+| timesketch-web + worker | ~500 MB | Variable under load |
+| postgres + redis + nginx | ~300 MB | Stable, low variance |
+| **Total stack** | **~2.8 GB** | On 8 GB VM RAM |
 
-# Arrêter Timesketch avant de lancer Splunk
+**Recommendation**: do not run Timesketch and Splunk simultaneously unless necessary. Splunk alone consumes ~1.5 GB additional — the remaining margin for OS and analysis tools becomes insufficient.
+
+```bash
+# Stop Timesketch before starting Splunk
 cd ~/timesketch && sudo docker compose stop
 sudo -u splunk /opt/splunk/bin/splunk start
+```
 
-6. Problèmes rencontrés et résolutions
-docker-compose-plugin introuvable via apt
+## 6. Issues Encountered and Resolutions
 
-Symptôme :
+### `docker-compose-plugin` Not Found via apt
 
-E: Impossible de trouver le paquet docker-compose-plugin
+**Symptom**:
 
-Cause : tentative d'installation depuis les dépôts Ubuntu standard, qui ne fournissent pas ce paquet.
+```
+E: Unable to locate package docker-compose-plugin
+```
 
-Résolution : ajouter le dépôt officiel Docker (download.docker.com) avant toute installation — section 2 de ce document.
-docker.service échoue au démarrage via systemd
+**Cause**: attempted installation from Ubuntu standard repositories, which do not provide this package.
 
-Symptôme :
+**Resolution**: add the official Docker repository (<https://download.docker.com>) before any installation — see §2 of this document.
 
+### `docker.service` Fails to Start via systemd
+
+**Symptom**:
+
+```
 Job for docker.service failed because the control process exited with error code.
+```
 
-Cause : démarrage systemd trop tôt après l'installation, en conflit avec un ancien socket ou une instance résiduelle de docker.io. Le démon dockerd lui-même fonctionne correctement — le problème est isolé à l'orchestration systemd.
+**Cause**: systemd starts too early after installation, conflicting with a legacy socket or residual `docker.io` instance. The `dockerd` daemon itself works correctly — the issue is isolated to systemd orchestration.
 
-Diagnostic : lancer sudo dockerd directement pour observer si le démon démarre sans erreur. S'il démarre, le problème est bien au niveau systemd.
+**Diagnosis**: run `sudo dockerd` directly to observe if the daemon starts without error. If it does, the problem is at the systemd level.
 
-Résolution :
+**Resolution**:
 
+```bash
 sudo systemctl reset-failed docker.service docker.socket
 sudo systemctl restart containerd
 sudo systemctl start docker
 sudo systemctl status docker
+```
 
-OpenSearch reste unhealthy indéfiniment
+### OpenSearch Remains Unhealthy Indefinitely
 
-Symptôme :
+**Symptom**:
 
+```
 [WARN] this node is unhealthy: health check failed on
        [/usr/share/opensearch/data/nodes/0]
+```
 
-Causes possibles (par ordre de probabilité) :
+**Possible Causes** (by probability):
 
-    Disque de la VM saturé — OpenSearch refuse d'écrire si l'espace disponible est insuffisant.
+1. **VM disk saturated** — OpenSearch refuses to write if available space is insufficient.
+   ```bash
+   df -h /   # verify Use% < 90%
+   ```
 
-    df -h /   # vérifier que Use% < 90%
+2. **`vm.max_map_count` too low** — OpenSearch requires 262144 minimum.
+   ```bash
+   sysctl vm.max_map_count
+   sudo sysctl -w vm.max_map_count=262144   # if value < 262144
+   ```
 
-    vm.max_map_count trop bas — OpenSearch exige 262144 minimum.
+3. **Insufficient memory** — VM was initially at 4.5 GB, causing system load of 52 (normal load: 1–4). Resolution: increase VM RAM to 8 GB via VirtualBox.
 
-    sysctl vm.max_map_count
-    sudo sysctl -w vm.max_map_count=262144   # si valeur < 262144
+**Recommended Diagnostic Sequence**:
 
-    Mémoire insuffisante — la VM était initialement à 4,5 Go, ce qui provoquait une charge système à 52 (charge normale : 1 à 4). Résolution : augmenter la RAM VM à 8 Go depuis VirtualBox.
-
-Séquence de diagnostic recommandée :
-
+```bash
 df -h /
 sysctl vm.max_map_count
 free -h
 sudo docker compose logs opensearch --tail 30
+```
 
-docker compose exec reste figé (pas de réponse)
+### `docker compose exec` Hangs (No Response)
 
-Symptôme : sudo docker compose exec timesketch-web tsctl create-user ne répond pas, Ctrl+C nécessaire pour interrompre.
+**Symptom**: `sudo docker compose exec timesketch-web tsctl create-user` does not respond, Ctrl+C required to interrupt.
 
-Cause : timesketch-web n'a pas terminé son initialisation interne, ou la VM manque de ressources (RAM ou CPU saturés).
+**Cause**: `timesketch-web` has not finished internal initialization, or VM lacks resources (RAM or CPU saturated).
 
-Résolution : attendre 2 à 3 minutes supplémentaires après que tous les services soient Up, puis relancer la commande. Vérifier free -h pour s'assurer que la mémoire disponible est suffisante (> 1 Go).
-Résultat attendu en fin de déploiement
+**Resolution**: wait 2–3 additional minutes after all services are Up, then retry the command. Verify `free -h` to ensure available memory is sufficient (> 1 GB).
 
-✅ Docker 29.x installé depuis le dépôt officiel
-✅ docker compose version v5.x.x
-✅ Stack Timesketch : 6 services à l'état Up/healthy
-✅ Utilisateur Timesketch créé
-✅ Interface accessible sur http://localhost
-✅ vm.max_map_count = 262144 (persistant après redémarrage)
-✅ Swap 4 Go actif (voir 01-vm-provisioning.md)
+## ✅ Expected Final Deployment State
 
+- [x] Docker 29.x installed from official repository
+- [x] `docker compose version` v5.x.x
+- [x] Timesketch stack: 6 services at Up/healthy state
+- [x] Timesketch user created
+- [x] Interface accessible at `http://localhost`
+- [x] `vm.max_map_count = 262144` (persistent after reboot)
+- [x] 4 GB swap active (see [01-vm-provisioning.md](01-vm-provisioning.md))
