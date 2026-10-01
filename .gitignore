@@ -1,5 +1,4 @@
-cd ~/MyEgo/projects/dfir-lab-journal
-cat > .gitignore << 'EOF'
+
 *.7z
 *.raw
 *.mem
@@ -12,4 +11,3 @@ lab_case/
 evidences/
 *solution*
 *scenario-reveal*
-EOF
