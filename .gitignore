@@ -1,4 +1,4 @@
-
+# Evidence & case data
 *.7z
 *.raw
 *.mem
@@ -11,3 +11,34 @@ lab_case/
 evidences/
 *solution*
 *scenario-reveal*
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*~
+*.swp
+*.bak
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+env/
+.env
+*.local
+
+# Logs / temp
+*.log
+*.tmp
+*.temp
+
+# Secrets / certs
+*.pem
+*.key
+*.crt
+*.pfx
+*.p12
+DFIR-Certificate.pdf
